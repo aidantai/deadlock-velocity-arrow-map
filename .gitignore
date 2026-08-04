@@ -1,0 +1,31 @@
+# Valve game files / CSDK output — huge, copyrighted, never commit
+/Reduced_CSDK_12/
+/csdk*/
+/game/
+/content/
+/depots/
+/DepotDownloader/
+*.vpk
+
+# Build artifacts (Metamod, LuaUnlocker, CSDK addon compiles)
+/build/
+/bin/
+/obj/
+/out/
+**/Release/
+**/Debug/
+*.dll
+*.so
+*.pdb
+*.ilk
+*.exp
+
+# Logs
+*.log
+
+# Editor / OS cruft
+.vs/
+.vscode/*
+!.vscode/settings.json
+Thumbs.db
+.DS_Store
