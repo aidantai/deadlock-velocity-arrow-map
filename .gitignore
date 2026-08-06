@@ -6,8 +6,9 @@
 /depots/
 /DepotDownloader/
 *.vpk
+!velocityarrow.vpk
 
-# Build artifacts (Metamod, LuaUnlocker, CSDK addon compiles)
+# Build artifacts
 /build/
 /bin/
 /obj/

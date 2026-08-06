@@ -1,97 +1,103 @@
 # Deadlock Mod: Velocity Direction Arrow
 
-## Goal
-Build a small Deadlock (Valve, Source 2) mod that renders a 3D arrow on my
-character model pointing in the direction of my horizontal velocity (ignore
-Z/vertical) every tick.
+A Deadlock (Valve, Source 2) mod that draws a 3D arrow on your hero pointing
+in the direction of your horizontal velocity, updated every server tick.
+Built to make air-strafe angles visible instead of something you have to
+mentally estimate.
 
-**Stretch goal:** two more arrows offset ±90° from the main one for visual
-reference.
+## What's in this repo
 
-## Environment
-- Windows, Deadlock installed via Steam (app id `1422450`)
-- Testing on a separate **alt Steam account**, not main — used specifically
-  for this modding work to avoid any VAC/ban risk on the main account
-- Steam owns Deadlock on this alt account
+| File | What it is |
+|---|---|
+| `velocity_arrow.vpulse` | The Pulse graph (visual-scripting) source. Edit this in [vpulse-editor](https://github.com/LionDoge/vpulse-editor). |
+| `velocity_test.vmap` | The Hammer map source. Has a sealed room, an `info_team_spawn` per team (with **Initial player spawn** checked), and a `point_pulse` entity with its `graph_def` bound to the compiled `.vpulse_c`. |
+| `velocityarrow.vpk` | The final packaged addon — this is what actually gets installed. |
 
-## Confirmed so far (don't re-research these)
-- No official Valve SDK for Deadlock. Community fills the gap.
-- **CSDK 12** (community "Source Development Kit") is the tool for compiling
-  assets — models, particles, materials, maps, VPK packing. Setup involves:
-  - downloading `Reduced_CSDK_12`
-  - pulling full game files via DepotDownloader
-    (`-app 1422450 -depot 1422451` and `-depot 1422456`, specific manifest
-    IDs on the CSDK 12 page:
-    https://deadlockmodding.pages.dev/modding-tools/csdk-12)
-  - exporting/re-extracting the VPK via Source 2 Viewer
-  - using `csdkcfg.exe` to create an addon under
-    `content/citadel_addons/<name>/` (source) and
-    `game/citadel_addons/<name>/` (compiled output)
-- Binaries: `bin_server` mode is what actually launches Deadlock in-game
-  with your addon mounted (requires Full Game Files); `bin`/`bin_tools` are
-  for offline asset preview/compiling (each crashes on different things —
-  Animgraph vs. projected particles).
-- CSDK alone has no scripting/gameplay-logic layer — it's asset compiling
-  only. Per-tick logic (reading velocity, computing an angle, updating an
-  entity every frame) requires actual code running in the game process.
-- Existing debug commands (e.g. `citadel_wall_detection_debug 1`,
-  `cl_showpos 1`) are hardcoded C++ behavior baked into the binary — not
-  reusable/repointable assets. Searched Deadlock's own `cvarlist` for
-  generic `draw`/`debugoverlay` commands (331 "draw" results) but found
-  nothing yet that's obviously a scriptable "draw a line/arrow from A to B"
-  primitive — CS2's cvar list has `drawline`/`drawcross`/`debugoverlay_*`
-  as engine-level commands, unconfirmed whether Deadlock exposes the same.
-- The real path to per-tick logic: **Metamod:Source 2.0 + LuaUnlocker**.
-  - Metamod:Source 2.0 (rolling pre-release, actively developed,
-    https://github.com/alliedmodders/metamod-source) is a C++ engine-hook
-    plugin loader with confirmed Deadlock support — its own build manifests
-    reference `hl2sdk-deadlock` specifically (see build #1390: "Trigger
-    build for hl2sdk-deadlock & dota update").
-  - LuaUnlocker (https://github.com/Source2ZE/LuaUnlocker) is an
-    open-source Metamod plugin that enables Lua VScript. This is almost
-    certainly what's behind a Deadlock forum post (June 2024) showing a
-    working velocity speedometer built this way — proof of concept exists,
-    but no public source for that specific mod.
-  - **Open question, needs verification before building against it:**
-    LuaUnlocker's documented build command shows `configure.py -s cs2` —
-    unclear if it has a Deadlock-specific build target or needs adapting.
-    Check their GitHub issues/discussions for "Deadlock" before assuming.
-  - Requires launching Deadlock with `-insecure` (disables VAC for that
-    session — also generally blocks matchmaking/ranked while active).
+## Architecture
 
-## Risk / safety notes
-- Only test with `-insecure` + private lobbies/offline, never bring an
-  injected-DLL session into ranked matchmaking.
-- Using the alt account specifically to fully decouple this from the main
-  account.
+No code injection, no Metamod, no LuaUnlocker. The whole mod is a **Pulse
+graph attached to a `point_pulse` entity** in a normal custom map, compiled
+through CSDK 12 like any other addon. This is the same mechanism community
+maps like `jump_control` use.
 
-## Roadmap
+The graph's logic, roughly:
+- On `Think` (rescheduled every server tick, ~64Hz): read the player's
+  current origin, diff it against the origin saved on the *previous* tick
+  (`Save Variable`/`Load Variable`) to get a per-tick displacement vector —
+  this stood in for `Get Entity Velocity`, which does not return usable data
+  in this CSDK build.
+- Draw `Debug World Arrow` from current origin to current-origin-plus-scaled-delta.
+- Everything runs server-side (`Graph domain: ServerEntity`), so update rate
+  is capped by the server's tick rate, not client FPS.
 
-- [ ] **1. Dev workspace setup** — CSDK 12 install, Metamod:Source 2.0
-      build/install for Deadlock, LuaUnlocker build on top of it. Verify
-      each layer loads before moving on (Metamod loads → LuaUnlocker loads
-      → a trivial Lua script runs).
-- [ ] **2. Entity API discovery** — once Lua VScript execution is
-      confirmed, find/inspect the entity API available (player origin,
-      velocity, angle-setting, per-tick hook) — likely undocumented for
-      Deadlock specifically; may need reflection/trial or cross-reference
-      against Dota 2's VScript API (same engine lineage) as a starting
-      point.
-- [ ] **3. Mod logic**
-  - Per-tick hook that reads player velocity, zeroes the Z component,
-    computes yaw via `atan2`
-  - Attach a visual (start simple — even a debug-draw line/axis if a
-    scriptable primitive turns out to exist, otherwise a compiled
-    particle/model attached to the player entity) and update its
-    orientation each tick
-  - Stretch: two more instances offset ±90° yaw from the main arrow
-- [ ] **4. Packaging** — compile/package the CSDK addon alongside the
-      script/plugin so the whole thing is testable in one `bin_server`
-      launch.
+## Building from source
 
-## Working style notes
-- Comfortable with Next.js/GitHub/Vercel-style web dev and some "vibe
-  coding," but the C++/Source-engine-plugin space is new — go step by
-  step, explain engine-specific quirks as they come up.
-- Prefer getting a minimal end-to-end thing working (even something ugly)
-  over a fully-featured first attempt.
+1. CSDK 12 install (`Reduced_CSDK_12`), with **Full Game Files** set up per
+   [the CSDK 12 docs](https://deadlockmodding.pages.dev/modding-tools/csdk-12).
+2. Put `velocity_arrow.vpulse` in `content/citadel_addons/velocityarrow/`,
+   `velocity_test.vmap` in `content/citadel_addons/velocityarrow/maps/`.
+3. Compile the Pulse graph (Pulse Editor's own **Compile** button, or Asset
+   Browser → right-click → Compile — identical either way).
+4. Compile the map with `GUIMapCompiler/CS2MapCompiler.exe`. For Custom Path,
+   use the real `cs2.exe` (`steamapps/common/Counter-Strike Global Offensive/game/bin/win64/cs2.exe`)
+   — **not** Deadlock's own `bin_cs2/deadlock.exe`. See gotchas below for why
+   this matters.
+5. Package via Asset Browser → **CS2 Workshop Manager** → New → Submit. The
+   submission itself fails (error 15, expected — Deadlock's Workshop backend
+   isn't open) but it generates the real addon package as a side effect:
+   `game/citadel_addons/velocityarrow.vpk`.
+6. Copy that file into the real Deadlock install's
+   `game/citadel/addons/` folder, renamed to whatever `pakNN_dir.vpk` slot
+   isn't already taken by Deadlock Mod Manager (check its files first —
+   don't collide).
+
+## Launching / testing
+
+```
+sv_cheats 1
+developer 1
+citadel_hero_testing_enabled true
+map jump_control        # warm-up load, see gotchas
+<swap hero via UI>
+map velocity_test nomapvalidation=true
+<swap hero via UI>
+```
+
+## Hard-won gotchas (read before you re-derive these the slow way)
+
+- **Step 4 above is wrong on purpose, to flag it**: point Custom Path at the
+  **real `cs2.exe`** (`steamapps/common/Counter-Strike Global Offensive/game/bin/win64/cs2.exe`),
+  not Deadlock's own `bin_cs2/deadlock.exe`. The tool is literally called
+  "CS2 Map Compiler" — using Deadlock's binary silently produces maps
+  missing registration data the server needs to resolve the map name at all
+  (`Spawn Server: <empty>` in the log otherwise).
+- `map <name>` refuses custom maps by default — append **`nomapvalidation=true`**.
+- The server still won't spawn you without an `info_team_spawn` that has
+  **Initial player spawn** checked, matching your team.
+- `Get Entity Velocity` does not return usable values in this CSDK build —
+  use the origin-delta-via-`Save`/`Load Variable` approach in the graph instead.
+- In the Pulse Editor's `Operation` node, type the literal symbol
+  (**`-`**, `+`, `*`), not the word (`SUB`, `ADD`, `MUL`). Typing the word
+  silently produces wrong results without erroring — this cost a lot of
+  debugging time.
+- `Save Variable` must fire **after** the value it's overwriting has been
+  read elsewhere in the same tick, or you'll diff against stale data forever.
+- Server tick rate is 64Hz. Set `Set Next Think`'s `dt` to `0.01`–`0.015625`
+  and `Debug World Arrow`'s `flDuration` to roughly the same (not
+  significantly higher, or you get overlapping "echo" arrows).
+- Always **save to `content/citadel_addons/<addon>/...`** — saving anywhere
+  else (e.g. a separate git repo checkout) silently decouples your edits
+  from what actually gets compiled.
+
+## On the earlier Metamod/LuaUnlocker plan
+
+Early exploration considered Metamod:Source + LuaUnlocker for per-tick Lua
+logic, since CSDK alone was assumed to have no scripting layer. That's not
+needed — Pulse graphs cover it. The Metamod/LuaUnlocker install/uninstall
+scripts and hash-verified modification log that used to live in this repo
+have been removed, since they no longer describe anything the shipped mod
+does. Before removing them, the real Deadlock install was directly
+re-verified (not just checked against old docs) to contain zero trace of
+`metamod.vdf`, `metamod_x64.vdf`, `metamod/`, or `LuaUnlocker/` anywhere
+under the game folder — that path was fully explored, abandoned, and
+confirmed cleanly backed out.
